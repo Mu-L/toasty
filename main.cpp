@@ -92,14 +92,105 @@ const AppPreset* find_preset(const std::wstring& name) {
     return nullptr;
 }
 
+// Get command line of a process using NtQueryInformationProcess with ProcessCommandLineInformation
+typedef NTSTATUS(NTAPI* NtQueryInformationProcessFn)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+
+std::wstring get_process_command_line(DWORD pid) {
+    std::wstring cmdLine;
+
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProcess) {
+        return L"";
+    }
+
+    // Get NtQueryInformationProcess
+    static NtQueryInformationProcessFn NtQueryInformationProcess = nullptr;
+    if (!NtQueryInformationProcess) {
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        if (ntdll) {
+            NtQueryInformationProcess = (NtQueryInformationProcessFn)GetProcAddress(ntdll, "NtQueryInformationProcess");
+        }
+    }
+
+    if (!NtQueryInformationProcess) {
+        CloseHandle(hProcess);
+        return L"";
+    }
+
+    // Use ProcessCommandLineInformation (60) - available on Windows 8.1+
+    const ULONG ProcessCommandLineInformation = 60;
+
+    struct UNICODE_STRING {
+        USHORT Length;
+        USHORT MaximumLength;
+        PWSTR Buffer;
+    };
+
+    // First call to get required size
+    ULONG returnLength = 0;
+    NtQueryInformationProcess(hProcess, ProcessCommandLineInformation, nullptr, 0, &returnLength);
+
+    if (returnLength == 0) {
+        CloseHandle(hProcess);
+        return L"";
+    }
+
+    // Allocate buffer and get command line
+    std::vector<BYTE> buffer(returnLength);
+    NTSTATUS status = NtQueryInformationProcess(hProcess, ProcessCommandLineInformation,
+                                                 buffer.data(), returnLength, &returnLength);
+
+    if (status == 0) {
+        UNICODE_STRING* unicodeString = reinterpret_cast<UNICODE_STRING*>(buffer.data());
+        if (unicodeString->Length > 0 && unicodeString->Buffer) {
+            cmdLine.assign(unicodeString->Buffer, unicodeString->Length / sizeof(wchar_t));
+        }
+    }
+
+    CloseHandle(hProcess);
+    return cmdLine;
+}
+
+// Check if command line contains a known CLI pattern
+const AppPreset* check_command_line_for_preset(const std::wstring& cmdLine) {
+    std::wstring lowerCmd = cmdLine;
+    for (auto& c : lowerCmd) c = towlower(c);
+
+    // Check for Gemini CLI (multiple patterns)
+    if (lowerCmd.find(L"gemini-cli") != std::wstring::npos ||
+        lowerCmd.find(L"gemini\\cli") != std::wstring::npos ||
+        lowerCmd.find(L"gemini/cli") != std::wstring::npos ||
+        lowerCmd.find(L"@google\\gemini") != std::wstring::npos ||
+        lowerCmd.find(L"@google/gemini") != std::wstring::npos) {
+        return find_preset(L"gemini");
+    }
+
+    // Check for Claude Code (in case it runs via Node too)
+    if (lowerCmd.find(L"claude-code") != std::wstring::npos ||
+        lowerCmd.find(L"@anthropic") != std::wstring::npos) {
+        return find_preset(L"claude");
+    }
+
+    // Check for Cursor
+    if (lowerCmd.find(L"cursor") != std::wstring::npos) {
+        return find_preset(L"cursor");
+    }
+
+    return nullptr;
+}
+
 // Walk up process tree to find a matching AI CLI preset
-const AppPreset* detect_preset_from_ancestors() {
+const AppPreset* detect_preset_from_ancestors(bool debug = false) {
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) {
         return nullptr;
     }
 
     DWORD currentPid = GetCurrentProcessId();
+
+    if (debug) {
+        std::wcerr << L"[DEBUG] Starting from PID: " << currentPid << L"\n";
+    }
 
     // Walk up the process tree (max 20 levels to avoid infinite loops)
     for (int depth = 0; depth < 20; depth++) {
@@ -134,14 +225,34 @@ const AppPreset* detect_preset_from_ancestors() {
                     }
 
                     // Convert to lowercase for matching
-                    for (auto& c : exeName) c = towlower(c);
+                    std::wstring lowerExeName = exeName;
+                    for (auto& c : lowerExeName) c = towlower(c);
 
-                    // Check if this matches a preset
-                    const AppPreset* preset = find_preset(exeName);
+                    // Get command line for this process
+                    std::wstring cmdLine = get_process_command_line(parentPid);
+
+                    if (debug) {
+                        std::wcerr << L"[DEBUG] Level " << depth << L": PID=" << parentPid
+                                   << L" Name=" << exeName << L"\n";
+                        std::wcerr << L"[DEBUG]   CmdLine: " << (cmdLine.empty() ? L"(empty)" : cmdLine.substr(0, 100)) << L"\n";
+                    }
+
+                    // Check if this matches a preset by name
+                    const AppPreset* preset = find_preset(lowerExeName);
                     if (preset) {
+                        if (debug) std::wcerr << L"[DEBUG] MATCH by name: " << lowerExeName << L"\n";
                         CloseHandle(snapshot);
                         return preset;
                     }
+
+                    // Check command line for CLI patterns (handles node.exe, etc.)
+                    preset = check_command_line_for_preset(cmdLine);
+                    if (preset) {
+                        if (debug) std::wcerr << L"[DEBUG] MATCH by cmdline\n";
+                        CloseHandle(snapshot);
+                        return preset;
+                    }
+
                     break;
                 }
             } while (Process32NextW(snapshot, &pe32));
@@ -320,9 +431,18 @@ int wmain(int argc, wchar_t* argv[]) {
     bool doRegister = false;
     bool explicitApp = false;  // Track if user explicitly set --app
     bool explicitTitle = false; // Track if user explicitly set -t
+    bool debug = false;
+
+    // Quick scan for --debug flag
+    for (int i = 1; i < argc; i++) {
+        if (std::wstring(argv[i]) == L"--debug") {
+            debug = true;
+            break;
+        }
+    }
 
     // Auto-detect parent process and apply preset if found
-    const AppPreset* autoPreset = detect_preset_from_ancestors();
+    const AppPreset* autoPreset = detect_preset_from_ancestors(debug);
     if (autoPreset) {
         title = autoPreset->title;
         iconPath = extract_icon_to_temp(autoPreset->iconResourceId);
