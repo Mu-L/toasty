@@ -484,14 +484,20 @@ bool install_claude(const std::wstring& exePath) {
         }
     }
     
-    // Build hook object (directly in Stop array, no nested "hooks")
-    JsonObject hookObj;
-    hookObj.SetNamedValue(L"type", JsonValue::CreateStringValue(L"command"));
+    // Build hook structure with nested "hooks" array (required by Claude Code)
+    JsonObject innerHook;
+    innerHook.SetNamedValue(L"type", JsonValue::CreateStringValue(L"command"));
 
     std::wstring escapedPath = escape_json_string(exePath);
     std::wstring command = escapedPath + L" \"Claude needs attention\" -t \"Claude Code\"";
-    hookObj.SetNamedValue(L"command", JsonValue::CreateStringValue(command));
-    hookObj.SetNamedValue(L"timeout", JsonValue::CreateNumberValue(5000));
+    innerHook.SetNamedValue(L"command", JsonValue::CreateStringValue(command));
+    innerHook.SetNamedValue(L"timeout", JsonValue::CreateNumberValue(5000));
+
+    JsonArray innerHooks;
+    innerHooks.Append(innerHook);
+
+    JsonObject hookItem;
+    hookItem.SetNamedValue(L"hooks", innerHooks);
 
     // Get or create hooks object
     JsonObject hooksObj;
@@ -508,7 +514,7 @@ bool install_claude(const std::wstring& exePath) {
         }
     }
 
-    stopArray.Append(hookObj);
+    stopArray.Append(hookItem);
     hooksObj.SetNamedValue(L"Stop", stopArray);
     rootObj.SetNamedValue(L"hooks", hooksObj);
     
@@ -534,14 +540,20 @@ bool install_gemini(const std::wstring& exePath) {
         }
     }
     
-    // Build hook object (directly in AfterAgent array, no nested "hooks")
-    JsonObject hookObj;
-    hookObj.SetNamedValue(L"type", JsonValue::CreateStringValue(L"command"));
+    // Build hook structure with nested "hooks" array (required by Gemini CLI)
+    JsonObject innerHook;
+    innerHook.SetNamedValue(L"type", JsonValue::CreateStringValue(L"command"));
 
     std::wstring escapedPath = escape_json_string(exePath);
     std::wstring command = escapedPath + L" \"Gemini finished\" -t \"Gemini\"";
-    hookObj.SetNamedValue(L"command", JsonValue::CreateStringValue(command));
-    hookObj.SetNamedValue(L"timeout", JsonValue::CreateNumberValue(5000));
+    innerHook.SetNamedValue(L"command", JsonValue::CreateStringValue(command));
+    innerHook.SetNamedValue(L"timeout", JsonValue::CreateNumberValue(5000));
+
+    JsonArray innerHooks;
+    innerHooks.Append(innerHook);
+
+    JsonObject hookItem;
+    hookItem.SetNamedValue(L"hooks", innerHooks);
 
     // Get or create hooks object
     JsonObject hooksObj;
@@ -558,7 +570,7 @@ bool install_gemini(const std::wstring& exePath) {
         }
     }
 
-    afterAgentArray.Append(hookObj);
+    afterAgentArray.Append(hookItem);
     hooksObj.SetNamedValue(L"AfterAgent", afterAgentArray);
     rootObj.SetNamedValue(L"hooks", hooksObj);
     
