@@ -13,6 +13,10 @@ add_executable(toasty main.cpp)
 target_link_libraries(toasty PRIVATE
     windowsapp
     runtimeobject
+    shlwapi
+    shell32
+    ole32
+    propsys
 )
 
 # Optimize for size in Release
