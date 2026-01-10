@@ -1,6 +1,9 @@
 #pragma once
 
-// Icon resource IDs
+// Application icon (must be first/lowest ID for Windows)
+#define IDI_APPICON  1
+
+// AI agent icon resource IDs
 #define IDI_CLAUDE   101
 #define IDI_COPILOT  102
 #define IDI_GEMINI   103

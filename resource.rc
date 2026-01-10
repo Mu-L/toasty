@@ -1,5 +1,8 @@
 #include "resource.h"
 
+// Application icon
+IDI_APPICON  ICON "icons/toasty.ico"
+
 // PNG icons embedded as RCDATA
 IDI_CLAUDE   RCDATA "icons/claude.png"
 IDI_COPILOT  RCDATA "icons/copilot.png"
