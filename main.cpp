@@ -10,6 +10,7 @@
 #include <string>
 #include <filesystem>
 #include <fstream>
+#include <tlhelp32.h>
 #include "resource.h"
 
 #pragma comment(lib, "shlwapi.lib")
@@ -91,6 +92,71 @@ const AppPreset* find_preset(const std::wstring& name) {
     return nullptr;
 }
 
+// Get parent process name
+std::wstring get_parent_process_name() {
+    DWORD currentPid = GetCurrentProcessId();
+    DWORD parentPid = 0;
+    
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return L"";
+    }
+    
+    PROCESSENTRY32W pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32W);
+    
+    // Find current process to get parent PID
+    if (Process32FirstW(snapshot, &pe32)) {
+        do {
+            if (pe32.th32ProcessID == currentPid) {
+                parentPid = pe32.th32ParentProcessID;
+                break;
+            }
+        } while (Process32NextW(snapshot, &pe32));
+    }
+    
+    if (parentPid == 0) {
+        CloseHandle(snapshot);
+        return L"";
+    }
+    
+    // Find parent process to get its name
+    pe32.dwSize = sizeof(PROCESSENTRY32W);
+    if (Process32FirstW(snapshot, &pe32)) {
+        do {
+            if (pe32.th32ProcessID == parentPid) {
+                CloseHandle(snapshot);
+                
+                // Extract just the filename without extension
+                std::wstring exeName = pe32.szExeFile;
+                size_t dotPos = exeName.find_last_of(L'.');
+                if (dotPos != std::wstring::npos) {
+                    exeName = exeName.substr(0, dotPos);
+                }
+                
+                // Convert to lowercase for matching
+                for (auto& c : exeName) c = towlower(c);
+                
+                return exeName;
+            }
+        } while (Process32NextW(snapshot, &pe32));
+    }
+    
+    CloseHandle(snapshot);
+    return L"";
+}
+
+// Detect preset from parent process
+const AppPreset* detect_preset_from_parent() {
+    std::wstring parentName = get_parent_process_name();
+    if (parentName.empty()) {
+        return nullptr;
+    }
+    
+    // Try to find a preset matching the parent process name
+    return find_preset(parentName);
+}
+
 void print_usage() {
     std::wcout << L"toasty - Windows toast notification CLI\n\n"
                << L"Usage: toasty <message> [options]\n\n"
@@ -100,10 +166,12 @@ void print_usage() {
                << L"  -i, --icon <path>    Custom icon path (PNG recommended, 48x48px)\n"
                << L"  -h, --help           Show this help\n"
                << L"  --register           Register app for notifications (run once)\n\n"
+               << L"Note: Toasty auto-detects known parent processes (Claude, Copilot, etc.)\n"
+               << L"      and applies the appropriate preset automatically. Use --app to override.\n\n"
                << L"Examples:\n"
                << L"  toasty --register\n"
                << L"  toasty \"Build completed\"\n"
-               << L"  toasty \"Task done\" -t \"Claude Code\"\n"
+               << L"  toasty \"Task done\" -t \"Custom Title\"\n"
                << L"  toasty \"Analysis complete\" --app claude\n"
                << L"  toasty \"Build succeeded\" --app copilot\n";
 }
@@ -252,6 +320,15 @@ int wmain(int argc, wchar_t* argv[]) {
     std::wstring title = L"Notification";
     std::wstring iconPath;
     bool doRegister = false;
+    bool explicitApp = false;  // Track if user explicitly set --app
+    bool explicitTitle = false; // Track if user explicitly set -t
+
+    // Auto-detect parent process and apply preset if found
+    const AppPreset* autoPreset = detect_preset_from_parent();
+    if (autoPreset) {
+        title = autoPreset->title;
+        iconPath = extract_icon_to_temp(autoPreset->iconResourceId);
+    }
 
     for (int i = 1; i < argc; i++) {
         std::wstring arg = argv[i];
@@ -266,6 +343,7 @@ int wmain(int argc, wchar_t* argv[]) {
         else if (arg == L"-t" || arg == L"--title") {
             if (i + 1 < argc) {
                 title = argv[++i];
+                explicitTitle = true;
             } else {
                 std::wcerr << L"Error: --title requires an argument\n";
                 return 1;
@@ -276,11 +354,15 @@ int wmain(int argc, wchar_t* argv[]) {
                 std::wstring appName = argv[++i];
                 const AppPreset* preset = find_preset(appName);
                 if (preset) {
-                    title = preset->title;
+                    // Only override title if user hasn't explicitly set it
+                    if (!explicitTitle) {
+                        title = preset->title;
+                    }
                     iconPath = extract_icon_to_temp(preset->iconResourceId);
                     if (iconPath.empty()) {
                         std::wcerr << L"Warning: Failed to extract icon for preset '" << appName << L"'\n";
                     }
+                    explicitApp = true;
                 } else {
                     std::wcerr << L"Error: Unknown app preset '" << appName << L"'\n";
                     std::wcerr << L"Available presets: claude, copilot, gemini, codex, cursor\n";

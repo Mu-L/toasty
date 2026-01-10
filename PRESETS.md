@@ -2,7 +2,7 @@
 
 ## Overview
 
-This implementation adds support for AI CLI tool presets with bundled icons to the Toasty notification system.
+This implementation adds support for AI CLI tool presets with bundled icons to the Toasty notification system. Toasty can automatically detect the parent process and apply the appropriate preset, or users can manually specify a preset.
 
 ## Implementation Details
 
@@ -17,6 +17,23 @@ This implementation adds support for AI CLI tool presets with bundled icons to t
 3. **Gemini** (IDI_GEMINI) - Purple with "GM" text
 4. **Codex** (IDI_CODEX) - Green with "CX" text
 5. **Cursor** (IDI_CURSOR) - Black with "CR" text
+
+### Auto-Detection Feature
+
+Toasty uses the Windows Toolhelp API to detect the parent process that called it:
+
+1. **Process Detection**: `CreateToolhelp32Snapshot()` gets a snapshot of all running processes
+2. **Parent Lookup**: Finds the current process PID, then looks up its parent process PID
+3. **Name Extraction**: Retrieves the parent process executable name (e.g., "claude.exe")
+4. **Preset Matching**: Strips the extension and matches against known preset names (case-insensitive)
+5. **Auto-Apply**: If a match is found, automatically applies that preset's icon and title
+
+This means when Claude Code calls `toasty.exe`, it automatically uses the Claude preset without needing `--app claude`.
+
+### Override Behavior
+
+- **`--app` flag**: Explicitly selects a preset, overriding auto-detection
+- **`-t` flag**: Overrides the title (whether from auto-detection, `--app`, or default)
 
 ### How Icon Embedding Works
 
@@ -44,7 +61,10 @@ This implementation adds support for AI CLI tool presets with bundled icons to t
 ### CLI Usage
 
 ```cmd
-# Use a preset (auto-sets title and icon)
+# Auto-detection (when called from Claude, Copilot, etc.)
+toasty "Task complete"
+
+# Manual preset selection
 toasty "Task complete" --app claude
 
 # Custom icon

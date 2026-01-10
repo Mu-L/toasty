@@ -24,30 +24,47 @@ Options:
 
 ## AI CLI Presets
 
-Toasty includes built-in presets for popular AI tools with custom icons:
+Toasty automatically detects when it's called from a known AI tool and applies the appropriate preset! No need to specify `--app` manually.
+
+**Auto-detected tools:**
+- Claude Code / Claude CLI
+- GitHub Copilot CLI
+- Google Gemini CLI
+- OpenAI Codex CLI
+- Cursor IDE
+
+When called from these tools, Toasty will automatically use the matching icon and title.
 
 ```cmd
-# Claude Code
-toasty "Analysis complete" --app claude
+# Called from Claude - automatically uses Claude preset
+toasty "Analysis complete"
 
-# GitHub Copilot
-toasty "Code review done" --app copilot
-
-# Google Gemini
-toasty "Processing finished" --app gemini
-
-# OpenAI Codex
-toasty "Generation complete" --app codex
-
-# Cursor IDE
-toasty "Build succeeded" --app cursor
+# Called from Copilot - automatically uses Copilot preset
+toasty "Code review done"
 ```
 
-Each preset includes a distinctive icon and default title. You can override the title:
+### Manual Preset Selection
+
+You can still manually specify a preset with `--app`:
 
 ```cmd
-# Use Claude preset but with custom title
-toasty "Task done" --app claude -t "My Custom Title"
+# Explicitly use Claude preset
+toasty "Processing finished" --app claude
+
+# Explicitly use Copilot preset
+toasty "Build succeeded" --app copilot
+```
+
+### Override Title
+
+The `-t` flag overrides any preset title (auto-detected or manual):
+
+```cmd
+# Auto-detected preset with custom title
+toasty "Task done" -t "My Custom Title"
+
+# Manual preset with custom title
+toasty "Task done" --app gemini -t "My Custom Title"
 ```
 
 ## Custom Icons
@@ -72,7 +89,7 @@ Add to `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "C:\\path\\to\\toasty.exe \"Claude finished\" -t \"Claude Code\"",
+            "command": "C:\\path\\to\\toasty.exe \"Claude finished\"",
             "timeout": 5
           }
         ]
@@ -80,6 +97,12 @@ Add to `~/.claude/settings.json`:
     ]
   }
 }
+```
+
+Toasty will automatically detect it's being called from Claude and apply the Claude preset (icon + title). You can still override the title if desired:
+
+```json
+"command": "C:\\path\\to\\toasty.exe \"Task complete\" -t \"Custom Title\""
 ```
 
 ## Building
