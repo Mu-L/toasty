@@ -2,17 +2,6 @@
 
 A tiny Windows toast notification CLI. 229 KB, no dependencies.
 
-## Usage
-
-```
-toasty <message> [options]
-
-Options:
-  -t, --title <text>   Set notification title (default: "Notification")
-  -h, --help           Show this help
-  --register           Register app for notifications (run once)
-```
-
 ## Quick Start
 
 ```cmd
@@ -21,6 +10,16 @@ toasty "Hello World" -t "Toasty"
 
 That's it. Toasty auto-registers on first run.
 
+## Usage
+
+```
+toasty <message> [options]
+
+Options:
+  -t, --title <text>   Set notification title (default: "Notification")
+  -h, --help           Show this help
+```
+
 ## Claude Code Integration
 
 Add to `~/.claude/settings.json`:
@@ -28,10 +27,17 @@ Add to `~/.claude/settings.json`:
 ```json
 {
   "hooks": {
-    "Stop": [{
-      "type": "command",
-      "command": "C:\\path\\to\\toasty.exe \"Claude finished\" -t \"Claude Code\""
-    }]
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\path\\to\\toasty.exe \"Claude finished\" -t \"Claude Code\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }
 ```
