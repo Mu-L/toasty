@@ -1,5 +1,7 @@
 # Toasty
 
+<img src="icons/toasty.png" alt="Toasty mascot" width="128" align="right">
+
 A tiny Windows toast notification CLI that knows how to hook into Coding Agents so you get notified when their long running tasks are finished. 229 KB, no dependencies.
 
 ## Quick Start
@@ -134,13 +136,9 @@ Add to `~/.gemini/settings.json`:
   "hooks": {
     "AfterAgent": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "C:\\path\\to\\toasty.exe \"Gemini finished\"",
-            "timeout": 5000
-          }
-        ]
+        "type": "command",
+        "command": "C:\\path\\to\\toasty.exe \"Gemini finished\"",
+        "timeout": 5000
       }
     ]
   }
