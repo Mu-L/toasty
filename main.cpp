@@ -766,20 +766,14 @@ bool install_gemini(const std::wstring& exePath) {
         }
     }
     
-    // Build hook structure with nested "hooks" array (required by Gemini CLI)
-    JsonObject innerHook;
-    innerHook.SetNamedValue(L"type", JsonValue::CreateStringValue(L"command"));
+    // Build hook structure (Gemini uses flat structure, no nested "hooks" array)
+    JsonObject hookItem;
+    hookItem.SetNamedValue(L"type", JsonValue::CreateStringValue(L"command"));
 
     std::wstring escapedPath = escape_json_string(exePath);
     std::wstring command = escapedPath + L" \"Gemini finished\" -t \"Gemini\"";
-    innerHook.SetNamedValue(L"command", JsonValue::CreateStringValue(command));
-    innerHook.SetNamedValue(L"timeout", JsonValue::CreateNumberValue(5000));
-
-    JsonArray innerHooks;
-    innerHooks.Append(innerHook);
-
-    JsonObject hookItem;
-    hookItem.SetNamedValue(L"hooks", innerHooks);
+    hookItem.SetNamedValue(L"command", JsonValue::CreateStringValue(command));
+    hookItem.SetNamedValue(L"timeout", JsonValue::CreateNumberValue(5000));
 
     // Get or create hooks object
     JsonObject hooksObj;
