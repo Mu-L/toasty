@@ -63,16 +63,22 @@ The `--register` flag creates this shortcut at:
 
 ```
 main.cpp
-├── print_usage()      - CLI help text
-├── escape_xml()       - XML entity escaping for toast content
-├── create_shortcut()  - AUMID registration via Start Menu shortcut
-└── wmain()            - Entry point, argument parsing, toast display
+├── print_usage()                     - CLI help text
+├── escape_xml()                      - XML entity escaping for toast content
+├── register_protocol()               - Register toasty:// protocol handler
+├── save_console_window_handle()      - Save HWND to registry for later focus
+├── get_saved_console_window_handle() - Retrieve saved HWND from registry
+├── focus_console_window()            - Focus the console/terminal window
+├── create_shortcut()                 - AUMID registration via Start Menu shortcut
+├── is_registered()                   - Check if app is registered
+├── ensure_registered()               - Auto-register if needed
+└── wmain()                           - Entry point, argument parsing, toast display
 ```
 
 ## Toast XML Format
 
 ```xml
-<toast>
+<toast activationType="protocol" launch="toasty://focus">
   <visual>
     <binding template="ToastGeneric">
       <text>Title</text>
@@ -81,6 +87,25 @@ main.cpp
   </visual>
 </toast>
 ```
+
+The `activationType="protocol"` and `launch="toasty://focus"` attributes enable click-to-focus functionality.
+
+## Click-to-Focus Implementation
+
+When a user clicks a toast notification, the following happens:
+
+1. **Protocol Activation**: Windows launches the `toasty://focus` protocol
+2. **Registry Lookup**: The protocol handler is registered at `HKCU\Software\Classes\toasty\shell\open\command`
+3. **App Launch**: The handler invokes `toasty.exe --focus`
+4. **Window Focus**: The app uses a three-tier approach to find and focus the console window:
+   - **Primary**: `GetConsoleWindow()` - Direct console handle (when toasty has a console attached)
+   - **Secondary**: Registry-stored HWND - Retrieved from `HKCU\Software\Toasty\LastConsoleWindow`
+   - **Fallback**: Window enumeration - Find visible console or Windows Terminal windows
+
+The registry-stored HWND approach is most reliable because:
+- The protocol activation launches toasty in a new process without a console
+- The saved handle points to the exact console window where toasty was originally run
+- The handle is validated with `IsWindow()` before use
 
 ## Branches
 
@@ -96,6 +121,12 @@ main.cpp
 1. Run `toasty --register` first
 2. Check Windows Settings > System > Notifications > Toasty is enabled
 3. Check Focus Assist / Do Not Disturb is off
+
+### Clicking notification doesn't focus terminal
+
+1. Check protocol registration: `reg query "HKCU\Software\Classes\toasty\shell\open\command"`
+2. Re-run `toasty --register` to update protocol handler
+3. Ensure the command value points to the correct toasty.exe path
 
 ### Build errors about missing headers
 
