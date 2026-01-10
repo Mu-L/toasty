@@ -105,6 +105,69 @@ bool create_shortcut() {
     return false;
 }
 
+bool is_registered() {
+    wchar_t startMenuPath[MAX_PATH];
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_PROGRAMS, nullptr, 0, startMenuPath))) {
+        return false;
+    }
+    std::wstring shortcutPath = std::wstring(startMenuPath) + L"\\Toasty.lnk";
+    return GetFileAttributesW(shortcutPath.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+bool ensure_registered() {
+    if (is_registered()) {
+        return true;
+    }
+    // Silently self-register
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+
+    wchar_t startMenuPath[MAX_PATH];
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_PROGRAMS, nullptr, 0, startMenuPath))) {
+        return false;
+    }
+
+    std::wstring shortcutPath = std::wstring(startMenuPath) + L"\\Toasty.lnk";
+
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+    IShellLinkW* shellLink = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                   IID_IShellLinkW, (void**)&shellLink);
+    if (FAILED(hr)) {
+        CoUninitialize();
+        return false;
+    }
+
+    shellLink->SetPath(exePath);
+    shellLink->SetDescription(L"Toasty - Toast Notification CLI");
+
+    IPropertyStore* propStore = nullptr;
+    hr = shellLink->QueryInterface(IID_IPropertyStore, (void**)&propStore);
+    if (SUCCEEDED(hr)) {
+        PROPVARIANT pv;
+        hr = InitPropVariantFromString(APP_ID, &pv);
+        if (SUCCEEDED(hr)) {
+            propStore->SetValue(PKEY_AppUserModel_ID, pv);
+            PropVariantClear(&pv);
+        }
+        propStore->Commit();
+        propStore->Release();
+    }
+
+    IPersistFile* persistFile = nullptr;
+    hr = shellLink->QueryInterface(IID_IPersistFile, (void**)&persistFile);
+    if (SUCCEEDED(hr)) {
+        hr = persistFile->Save(shortcutPath.c_str(), TRUE);
+        persistFile->Release();
+    }
+
+    shellLink->Release();
+    CoUninitialize();
+
+    return SUCCEEDED(hr);
+}
+
 int wmain(int argc, wchar_t* argv[]) {
     if (argc < 2) {
         print_usage();
@@ -152,6 +215,9 @@ int wmain(int argc, wchar_t* argv[]) {
     }
 
     try {
+        // Auto-register if needed
+        ensure_registered();
+
         init_apartment();
 
         // Set our AppUserModelId for this process

@@ -16,9 +16,10 @@ Options:
 ## Quick Start
 
 ```cmd
-toasty --register
 toasty "Hello World" -t "Toasty"
 ```
+
+That's it. Toasty auto-registers on first run.
 
 ## Claude Code Integration
 
