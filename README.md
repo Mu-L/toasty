@@ -43,7 +43,12 @@ toasty "Generation complete" --app codex
 toasty "Build succeeded" --app cursor
 ```
 
-Each preset includes a distinctive icon and default title.
+Each preset includes a distinctive icon and default title. You can override the title:
+
+```cmd
+# Use Claude preset but with custom title
+toasty "Task done" --app claude -t "My Custom Title"
+```
 
 ## Custom Icons
 
