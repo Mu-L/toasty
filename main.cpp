@@ -31,6 +31,15 @@ const wchar_t* APP_ID = L"Toasty.CLI.Notification";
 const wchar_t* APP_NAME = L"Toasty";
 const wchar_t* PROTOCOL_NAME = L"toasty";
 
+// RAII wrapper for Windows handles
+struct HandleGuard {
+    HANDLE h;
+    HandleGuard(HANDLE handle) : h(handle) {}
+    ~HandleGuard() { if (h && h != INVALID_HANDLE_VALUE) CloseHandle(h); }
+    operator HANDLE() const { return h; }
+    bool valid() const { return h && h != INVALID_HANDLE_VALUE; }
+};
+
 struct AppPreset {
     std::wstring name;
     std::wstring title;
@@ -84,15 +93,17 @@ std::wstring extract_icon_to_temp(int resourceId) {
     }
 }
 
+// Utility: Convert string to lowercase
+std::wstring to_lower(std::wstring str) {
+    for (auto& c : str) c = towlower(c);
+    return str;
+}
+
 // Find preset by name (case-insensitive)
 const AppPreset* find_preset(const std::wstring& name) {
-    std::wstring lowerName = name;
-    for (auto& c : lowerName) c = towlower(c);
-    
+    auto lowerName = to_lower(name);
     for (const auto& preset : APP_PRESETS) {
-        std::wstring presetName = preset.name;
-        for (auto& c : presetName) c = towlower(c);
-        if (presetName == lowerName) {
+        if (to_lower(preset.name) == lowerName) {
             return &preset;
         }
     }
@@ -160,8 +171,7 @@ std::wstring get_process_command_line(DWORD pid) {
 
 // Check if command line contains a known CLI pattern
 const AppPreset* check_command_line_for_preset(const std::wstring& cmdLine) {
-    std::wstring lowerCmd = cmdLine;
-    for (auto& c : lowerCmd) c = towlower(c);
+    auto lowerCmd = to_lower(cmdLine);
 
     // Check for Gemini CLI (multiple patterns)
     if (lowerCmd.find(L"gemini-cli") != std::wstring::npos ||
@@ -188,8 +198,8 @@ const AppPreset* check_command_line_for_preset(const std::wstring& cmdLine) {
 
 // Walk up process tree to find a matching AI CLI preset
 const AppPreset* detect_preset_from_ancestors(bool debug = false) {
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) {
+    HandleGuard snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+    if (!snapshot.valid()) {
         return nullptr;
     }
 
@@ -232,8 +242,7 @@ const AppPreset* detect_preset_from_ancestors(bool debug = false) {
                     }
 
                     // Convert to lowercase for matching
-                    std::wstring lowerExeName = exeName;
-                    for (auto& c : lowerExeName) c = towlower(c);
+                    auto lowerExeName = to_lower(exeName);
 
                     // Get command line for this process
                     std::wstring cmdLine = get_process_command_line(parentPid);
@@ -248,7 +257,6 @@ const AppPreset* detect_preset_from_ancestors(bool debug = false) {
                     const AppPreset* preset = find_preset(lowerExeName);
                     if (preset) {
                         if (debug) std::wcerr << L"[DEBUG] MATCH by name: " << lowerExeName << L"\n";
-                        CloseHandle(snapshot);
                         return preset;
                     }
 
@@ -256,7 +264,6 @@ const AppPreset* detect_preset_from_ancestors(bool debug = false) {
                     preset = check_command_line_for_preset(cmdLine);
                     if (preset) {
                         if (debug) std::wcerr << L"[DEBUG] MATCH by cmdline\n";
-                        CloseHandle(snapshot);
                         return preset;
                     }
 
@@ -269,7 +276,6 @@ const AppPreset* detect_preset_from_ancestors(bool debug = false) {
         currentPid = parentPid;
     }
 
-    CloseHandle(snapshot);
     return nullptr;
 }
 
@@ -427,8 +433,8 @@ HWND find_window_for_process(DWORD pid) {
 
 // Walk process tree to find the terminal/IDE window that launched us
 HWND find_ancestor_window() {
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) {
+    HandleGuard snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+    if (!snapshot.valid()) {
         return nullptr;
     }
 
@@ -457,14 +463,12 @@ HWND find_ancestor_window() {
         // Check if this parent has a visible window
         HWND hwnd = find_window_for_process(parentPid);
         if (hwnd) {
-            CloseHandle(snapshot);
             return hwnd;
         }
 
         currentPid = parentPid;
     }
 
-    CloseHandle(snapshot);
     return nullptr;
 }
 
@@ -766,14 +770,21 @@ bool install_gemini(const std::wstring& exePath) {
         }
     }
     
-    // Build hook structure (Gemini uses flat structure, no nested "hooks" array)
-    JsonObject hookItem;
-    hookItem.SetNamedValue(L"type", JsonValue::CreateStringValue(L"command"));
+    // Build hook structure with nested "hooks" array (required by Gemini CLI)
+    // Structure: hooks -> AfterAgent -> [ { hooks: [ { command: ... } ] } ]
+    JsonObject innerHook;
+    innerHook.SetNamedValue(L"type", JsonValue::CreateStringValue(L"command"));
 
     std::wstring escapedPath = escape_json_string(exePath);
     std::wstring command = escapedPath + L" \"Gemini finished\" -t \"Gemini\"";
-    hookItem.SetNamedValue(L"command", JsonValue::CreateStringValue(command));
-    hookItem.SetNamedValue(L"timeout", JsonValue::CreateNumberValue(5000));
+    innerHook.SetNamedValue(L"command", JsonValue::CreateStringValue(command));
+    innerHook.SetNamedValue(L"timeout", JsonValue::CreateNumberValue(5000));
+
+    JsonArray innerHooks;
+    innerHooks.Append(innerHook);
+
+    JsonObject hookItem;
+    hookItem.SetNamedValue(L"hooks", innerHooks);
 
     // Get or create hooks object
     JsonObject hooksObj;
@@ -785,6 +796,7 @@ bool install_gemini(const std::wstring& exePath) {
     JsonArray afterAgentArray;
     if (hooksObj.HasKey(L"AfterAgent")) {
         afterAgentArray = hooksObj.GetNamedArray(L"AfterAgent");
+        // Check if our hook is already installed (check nested structure)
         if (has_toasty_hook(afterAgentArray)) {
             return true; // Already installed
         }

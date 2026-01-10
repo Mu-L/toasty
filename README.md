@@ -136,9 +136,13 @@ Add to `~/.gemini/settings.json`:
   "hooks": {
     "AfterAgent": [
       {
-        "type": "command",
-        "command": "C:\\path\\to\\toasty.exe \"Gemini finished\"",
-        "timeout": 5000
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\path\\to\\toasty.exe \"Gemini finished\"",
+            "timeout": 5000
+          }
+        ]
       }
     ]
   }
