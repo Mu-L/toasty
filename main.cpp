@@ -287,7 +287,8 @@ void print_usage() {
                << L"  -h, --help           Show this help\n"
                << L"  --install [agent]    Install hooks for AI CLI agents (claude, gemini, copilot, or all)\n"
                << L"  --uninstall          Remove hooks from all AI CLI agents\n"
-               << L"  --status             Show installation status\n\n"
+               << L"  --status             Show installation status\n"
+               << L"  --register           Re-register app for notifications (troubleshooting)\n\n"
                << L"Note: Toasty auto-detects known parent processes (Claude, Copilot, etc.)\n"
                << L"      and applies the appropriate preset automatically. Use --app to override.\n\n"
                << L"Examples:\n"
@@ -1358,6 +1359,7 @@ int wmain(int argc, wchar_t* argv[]) {
     bool doUninstall = false;
     bool doStatus = false;
     bool doFocus = false;
+    bool doRegister = false;
     std::wstring installAgent;
     bool explicitApp = false;  // Track if user explicitly set --app
     bool explicitTitle = false; // Track if user explicitly set -t
@@ -1403,6 +1405,9 @@ int wmain(int argc, wchar_t* argv[]) {
         }
         else if (arg == L"--focus") {
             doFocus = true;
+        }
+        else if (arg == L"--register") {
+            doRegister = true;
         }
         else if (arg == L"-t" || arg == L"--title") {
             if (i + 1 < argc) {
@@ -1486,6 +1491,16 @@ int wmain(int argc, wchar_t* argv[]) {
 
         bool result = focus_console_window();
         return result ? 0 : 1;
+    }
+
+    if (doRegister) {
+        if (create_shortcut()) {
+            std::wcout << L"App registered for notifications.\n";
+            return 0;
+        } else {
+            std::wcerr << L"Failed to register app.\n";
+            return 1;
+        }
     }
 
     if (message.empty()) {
