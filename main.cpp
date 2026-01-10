@@ -8,6 +8,7 @@
 #include <winrt/Windows.UI.Notifications.h>
 #include <iostream>
 #include <string>
+#include <vector>
 #include <filesystem>
 
 #pragma comment(lib, "shlwapi.lib")
@@ -18,6 +19,11 @@ using namespace winrt;
 using namespace Windows::Data::Xml::Dom;
 using namespace Windows::UI::Notifications;
 
+struct ToastButton {
+    std::wstring label;
+    std::wstring protocol;  // Full protocol URL (https://... or file://...)
+};
+
 const wchar_t* APP_ID = L"Toasty.CLI.Notification";
 const wchar_t* APP_NAME = L"Toasty";
 
@@ -25,11 +31,15 @@ void print_usage() {
     std::wcout << L"toasty - Windows toast notification CLI\n\n"
                << L"Usage: toasty <message> [options]\n\n"
                << L"Options:\n"
-               << L"  -t, --title <text>   Set notification title (default: \"Notification\")\n"
-               << L"  -h, --help           Show this help\n\n"
+               << L"  -t, --title <text>              Set notification title (default: \"Notification\")\n"
+               << L"  --button-url <label> <url>      Add button that opens URL\n"
+               << L"  --button-path <label> <path>    Add button that opens folder/file\n"
+               << L"  -h, --help                      Show this help\n\n"
                << L"Examples:\n"
                << L"  toasty \"Build completed\"\n"
-               << L"  toasty \"Task done\" -t \"Claude Code\"\n";
+               << L"  toasty \"Task done\" -t \"Claude Code\"\n"
+               << L"  toasty \"Build complete\" --button-path \"Open Folder\" \"C:\\build\"\n"
+               << L"  toasty \"Deploy done\" --button-url \"View Docs\" \"https://example.com\"\n";
 }
 
 std::wstring escape_xml(const std::wstring& text) {
@@ -43,6 +53,21 @@ std::wstring escape_xml(const std::wstring& text) {
             case L'"':  result += L"&quot;"; break;
             case L'\'': result += L"&apos;"; break;
             default:    result += c; break;
+        }
+    }
+    return result;
+}
+
+std::wstring path_to_protocol_url(const std::wstring& path) {
+    // Convert Windows path to file:/// protocol URL for explorer
+    std::wstring result = L"file:///";
+    for (wchar_t c : path) {
+        if (c == L'\\') {
+            result += L'/';
+        } else if (c == L' ') {
+            result += L"%20";
+        } else {
+            result += c;
         }
     }
     return result;
@@ -175,6 +200,7 @@ int wmain(int argc, wchar_t* argv[]) {
     std::wstring message;
     std::wstring title = L"Notification";
     bool doRegister = false;
+    std::vector<ToastButton> buttons;
 
     for (int i = 1; i < argc; i++) {
         std::wstring arg = argv[i];
@@ -189,6 +215,29 @@ int wmain(int argc, wchar_t* argv[]) {
         else if (arg == L"-t" || arg == L"--title") {
             if (i + 1 < argc) {
                 title = argv[++i];
+            }
+        }
+        else if (arg == L"--button-url") {
+            if (i + 2 < argc) {
+                ToastButton btn;
+                btn.label = argv[++i];
+                btn.protocol = argv[++i];
+                buttons.push_back(btn);
+            } else {
+                std::wcerr << L"Error: --button-url requires label and URL arguments.\n";
+                return 1;
+            }
+        }
+        else if (arg == L"--button-path") {
+            if (i + 2 < argc) {
+                ToastButton btn;
+                btn.label = argv[++i];
+                std::wstring path = argv[++i];
+                btn.protocol = path_to_protocol_url(path);
+                buttons.push_back(btn);
+            } else {
+                std::wcerr << L"Error: --button-path requires label and path arguments.\n";
+                return 1;
             }
         }
         else if (arg[0] != L'-' && message.empty()) {
@@ -224,7 +273,20 @@ int wmain(int argc, wchar_t* argv[]) {
         std::wstring xml = L"<toast><visual><binding template=\"ToastGeneric\">"
                           L"<text>" + escape_xml(title) + L"</text>"
                           L"<text>" + escape_xml(message) + L"</text>"
-                          L"</binding></visual></toast>";
+                          L"</binding></visual>";
+
+        // Add actions if there are buttons
+        if (!buttons.empty()) {
+            xml += L"<actions>";
+            for (const auto& btn : buttons) {
+                xml += L"<action content=\"" + escape_xml(btn.label) + 
+                       L"\" arguments=\"" + escape_xml(btn.protocol) + 
+                       L"\" activationType=\"protocol\" />";
+            }
+            xml += L"</actions>";
+        }
+
+        xml += L"</toast>";
 
         XmlDocument doc;
         doc.LoadXml(xml);
