@@ -308,24 +308,31 @@ Version parse_version(const std::wstring& version_str) {
         str = str.substr(1);
     }
     
-    // Parse version components
-    size_t pos = 0;
-    size_t dot_pos = str.find(L'.');
-    if (dot_pos != std::wstring::npos) {
-        v.major = std::stoi(str.substr(pos, dot_pos - pos));
-        pos = dot_pos + 1;
-        
-        dot_pos = str.find(L'.', pos);
+    // Parse version components with error handling
+    try {
+        size_t pos = 0;
+        size_t dot_pos = str.find(L'.');
         if (dot_pos != std::wstring::npos) {
-            v.minor = std::stoi(str.substr(pos, dot_pos - pos));
+            v.major = std::stoi(str.substr(pos, dot_pos - pos));
             pos = dot_pos + 1;
             
-            v.patch = std::stoi(str.substr(pos));
-        } else {
-            v.minor = std::stoi(str.substr(pos));
+            dot_pos = str.find(L'.', pos);
+            if (dot_pos != std::wstring::npos) {
+                v.minor = std::stoi(str.substr(pos, dot_pos - pos));
+                pos = dot_pos + 1;
+                
+                v.patch = std::stoi(str.substr(pos));
+            } else {
+                v.minor = std::stoi(str.substr(pos));
+            }
+        } else if (!str.empty()) {
+            v.major = std::stoi(str);
         }
-    } else if (!str.empty()) {
-        v.major = std::stoi(str);
+    } catch (...) {
+        // If parsing fails, return 0.0.0
+        v.major = 0;
+        v.minor = 0;
+        v.patch = 0;
     }
     
     return v;
@@ -475,7 +482,10 @@ void handle_update(bool auto_update) {
         std::wstring tempFile = std::wstring(tempPath) + L"toasty-update.exe";
         
         if (!download_file(download_url, tempFile)) {
-            std::wcerr << L"Error: Failed to download update.\n";
+            std::wcerr << L"Error: Failed to download update from:\n";
+            std::wcerr << L"  " << download_url << L"\n";
+            std::wcerr << L"Please check your internet connection or download manually from:\n";
+            std::wcerr << L"  https://github.com/" << GITHUB_REPO_OWNER << L"/" << GITHUB_REPO_NAME << L"/releases/latest\n";
             return;
         }
         
@@ -490,24 +500,35 @@ void handle_update(bool auto_update) {
         }
         
         batch << L"@echo off\n";
-        batch << L"timeout /t 1 /nobreak >nul\n";
-        batch << L"move /y \"" << tempFile << L"\" \"" << currentExePath << L"\"\n";
+        batch << L"echo Waiting for toasty to exit...\n";
+        batch << L"timeout /t 2 /nobreak >nul\n";
+        batch << L"echo Installing update...\n";
+        batch << L"move /y \"" << tempFile << L"\" \"" << currentExePath << L"\" >nul 2>&1\n";
+        batch << L"if errorlevel 1 (\n";
+        batch << L"  echo Failed to install update. The file may be in use.\n";
+        batch << L"  pause\n";
+        batch << L") else (\n";
+        batch << L"  echo Update installed successfully!\n";
+        batch << L")\n";
         batch << L"del \"%~f0\"\n";
         batch.close();
         
-        // Launch batch script and exit
-        std::wcout << L"Update will be installed when you close this window.\n";
+        std::wcout << L"\nUpdate ready to install.\n";
+        std::wcout << L"A script will run to complete the installation.\n";
+        std::wcout << L"Press any key to continue...\n";
+        std::wcin.get();
         
         SHELLEXECUTEINFOW sei = { sizeof(sei) };
         sei.fMask = SEE_MASK_NOCLOSEPROCESS;
         sei.lpVerb = L"open";
         sei.lpFile = batchFile.c_str();
-        sei.nShow = SW_HIDE;
+        sei.nShow = SW_SHOW;  // Show the window so user sees progress
         
         if (ShellExecuteExW(&sei)) {
-            std::wcout << L"Update installed successfully! Please restart toasty.\n";
+            // Exit immediately to allow the batch script to replace the exe
+            std::exit(0);
         } else {
-            std::wcerr << L"Error: Failed to install update.\n";
+            std::wcerr << L"Error: Failed to launch update script.\n";
         }
     } else {
         std::wcout << L"You are running a newer version than the latest release.\n";
