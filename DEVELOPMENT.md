@@ -71,6 +71,7 @@ main.cpp
 
 ## Toast XML Format
 
+Basic format:
 ```xml
 <toast>
   <visual>
@@ -81,6 +82,32 @@ main.cpp
   </visual>
 </toast>
 ```
+
+With Windows 11 features:
+```xml
+<toast scenario="reminder">
+  <visual>
+    <binding template="ToastGeneric">
+      <text>Title</text>
+      <text>Message</text>
+      <image placement="hero" src="file:///C:/path/to/image.jpg"/>
+      <text placement="attribution">via Toasty</text>
+      <progress title="Building" value="0.75" status="75%"/>
+    </binding>
+  </visual>
+  <audio src="ms-winsoundevent:Notification.Reminder"/>
+</toast>
+```
+
+### Supported Features
+
+All these features work on Windows 10 (Creators Update/build 15063+) and Windows 11:
+
+- **Hero Image**: Large banner image at the top (`placement="hero"`)
+- **Scenarios**: `reminder`, `alarm`, `incomingCall`, `urgent` - affects behavior and priority
+- **Attribution**: Small gray text showing notification source (`placement="attribution"`)
+- **Progress Bar**: Visual progress indicator with title, value (0.0-1.0), and status text
+- **Audio**: Various system sounds or silent mode
 
 ## Branches
 

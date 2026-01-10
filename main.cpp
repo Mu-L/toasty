@@ -25,13 +25,21 @@ void print_usage() {
     std::wcout << L"toasty - Windows toast notification CLI\n\n"
                << L"Usage: toasty <message> [options]\n\n"
                << L"Options:\n"
-               << L"  -t, --title <text>   Set notification title (default: \"Notification\")\n"
-               << L"  -h, --help           Show this help\n"
-               << L"  --register           Register app for notifications (run once)\n\n"
+               << L"  -t, --title <text>        Set notification title (default: \"Notification\")\n"
+               << L"  --hero-image <path>       Add a large banner image at the top\n"
+               << L"  --scenario <type>         Set scenario: reminder, alarm, incomingCall, urgent\n"
+               << L"  --attribution <text>      Add small gray text at bottom showing source\n"
+               << L"  --progress <title:value:status>  Add progress bar (e.g., \"Building:0.75:75%\")\n"
+               << L"  --audio <sound>           Set audio: default, im, mail, reminder, sms, loopingAlarm, loopingCall, silent\n"
+               << L"  -h, --help                Show this help\n"
+               << L"  --register                Register app for notifications (run once)\n\n"
                << L"Examples:\n"
                << L"  toasty --register\n"
                << L"  toasty \"Build completed\"\n"
-               << L"  toasty \"Task done\" -t \"Claude Code\"\n";
+               << L"  toasty \"Task done\" -t \"Claude Code\"\n"
+               << L"  toasty \"Meeting in 5 min\" --scenario reminder --audio reminder\n"
+               << L"  toasty \"Download complete\" --hero-image C:\\pics\\banner.jpg\n"
+               << L"  toasty \"Building...\" --progress \"Build:0.5:50%\" --attribution \"via CI/CD\"\n";
 }
 
 std::wstring escape_xml(const std::wstring& text) {
@@ -176,6 +184,11 @@ int wmain(int argc, wchar_t* argv[]) {
 
     std::wstring message;
     std::wstring title = L"Notification";
+    std::wstring heroImage;
+    std::wstring scenario;
+    std::wstring attribution;
+    std::wstring progressData;
+    std::wstring audio;
     bool doRegister = false;
 
     for (int i = 1; i < argc; i++) {
@@ -191,6 +204,31 @@ int wmain(int argc, wchar_t* argv[]) {
         else if (arg == L"-t" || arg == L"--title") {
             if (i + 1 < argc) {
                 title = argv[++i];
+            }
+        }
+        else if (arg == L"--hero-image") {
+            if (i + 1 < argc) {
+                heroImage = argv[++i];
+            }
+        }
+        else if (arg == L"--scenario") {
+            if (i + 1 < argc) {
+                scenario = argv[++i];
+            }
+        }
+        else if (arg == L"--attribution") {
+            if (i + 1 < argc) {
+                attribution = argv[++i];
+            }
+        }
+        else if (arg == L"--progress") {
+            if (i + 1 < argc) {
+                progressData = argv[++i];
+            }
+        }
+        else if (arg == L"--audio") {
+            if (i + 1 < argc) {
+                audio = argv[++i];
             }
         }
         else if (arg[0] != L'-' && message.empty()) {
@@ -223,10 +261,88 @@ int wmain(int argc, wchar_t* argv[]) {
         // Set our AppUserModelId for this process
         SetCurrentProcessExplicitAppUserModelID(APP_ID);
 
-        std::wstring xml = L"<toast><visual><binding template=\"ToastGeneric\">"
-                          L"<text>" + escape_xml(title) + L"</text>"
-                          L"<text>" + escape_xml(message) + L"</text>"
-                          L"</binding></visual></toast>";
+        // Build toast XML with optional features
+        std::wstring xml = L"<toast";
+        
+        // Add scenario attribute if specified
+        if (!scenario.empty()) {
+            xml += L" scenario=\"" + escape_xml(scenario) + L"\"";
+        }
+        
+        xml += L"><visual><binding template=\"ToastGeneric\">";
+        
+        // Add title and message
+        xml += L"<text>" + escape_xml(title) + L"</text>";
+        xml += L"<text>" + escape_xml(message) + L"</text>";
+        
+        // Add hero image if specified
+        if (!heroImage.empty()) {
+            // Convert path to file:/// URI if it's a local path
+            std::wstring imageUri = heroImage;
+            if (heroImage.find(L"://") == std::wstring::npos) {
+                // Convert to absolute path and file URI
+                wchar_t absolutePath[MAX_PATH];
+                GetFullPathNameW(heroImage.c_str(), MAX_PATH, absolutePath, nullptr);
+                imageUri = L"file:///" + std::wstring(absolutePath);
+                // Replace backslashes with forward slashes for URI
+                for (auto& ch : imageUri) {
+                    if (ch == L'\\') ch = L'/';
+                }
+            }
+            xml += L"<image placement=\"hero\" src=\"" + escape_xml(imageUri) + L"\"/>";
+        }
+        
+        // Add attribution text if specified
+        if (!attribution.empty()) {
+            xml += L"<text placement=\"attribution\">" + escape_xml(attribution) + L"</text>";
+        }
+        
+        // Add progress bar if specified
+        if (!progressData.empty()) {
+            // Parse progress data: "title:value:status"
+            size_t firstColon = progressData.find(L':');
+            size_t secondColon = progressData.rfind(L':');
+            
+            if (firstColon != std::wstring::npos && secondColon != std::wstring::npos && firstColon != secondColon) {
+                std::wstring progressTitle = progressData.substr(0, firstColon);
+                std::wstring progressValue = progressData.substr(firstColon + 1, secondColon - firstColon - 1);
+                std::wstring progressStatus = progressData.substr(secondColon + 1);
+                
+                xml += L"<progress title=\"" + escape_xml(progressTitle) + L"\" ";
+                xml += L"value=\"" + escape_xml(progressValue) + L"\" ";
+                xml += L"status=\"" + escape_xml(progressStatus) + L"\"/>";
+            }
+        }
+        
+        xml += L"</binding></visual>";
+        
+        // Add audio if specified
+        if (!audio.empty()) {
+            std::wstring audioSrc;
+            if (audio == L"default") {
+                audioSrc = L"ms-winsoundevent:Notification.Default";
+            } else if (audio == L"im") {
+                audioSrc = L"ms-winsoundevent:Notification.IM";
+            } else if (audio == L"mail") {
+                audioSrc = L"ms-winsoundevent:Notification.Mail";
+            } else if (audio == L"reminder") {
+                audioSrc = L"ms-winsoundevent:Notification.Reminder";
+            } else if (audio == L"sms") {
+                audioSrc = L"ms-winsoundevent:Notification.SMS";
+            } else if (audio == L"loopingAlarm") {
+                audioSrc = L"ms-winsoundevent:Notification.Looping.Alarm";
+            } else if (audio == L"loopingCall") {
+                audioSrc = L"ms-winsoundevent:Notification.Looping.Call";
+            } else if (audio == L"silent") {
+                xml += L"<audio silent=\"true\"/>";
+            }
+            
+            if (!audioSrc.empty()) {
+                xml += L"<audio src=\"" + audioSrc + L"\"/>";
+            }
+        }
+        
+        xml += L"</toast>";
 
         XmlDocument doc;
         doc.LoadXml(xml);
