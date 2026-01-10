@@ -361,8 +361,11 @@ int wmain(int argc, wchar_t* argv[]) {
             std::wstring progressTitle, progressValue, progressStatus;
             if (parse_progress_data(progressData, progressTitle, progressValue, progressStatus)) {
                 xml += L"<progress title=\"" + escape_xml(progressTitle) + L"\" ";
-                xml += L"value=\"" + escape_xml(progressValue) + L"\" ";
+                xml += L"value=\"" + progressValue + L"\" ";
                 xml += L"status=\"" + escape_xml(progressStatus) + L"\"/>";
+            } else {
+                std::wcerr << L"Warning: Invalid progress format '" << progressData 
+                          << L"'. Expected format: 'title:value:status'\n";
             }
         }
         
