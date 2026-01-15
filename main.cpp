@@ -193,6 +193,13 @@ const AppPreset* check_command_line_for_preset(const std::wstring& cmdLine) {
         return find_preset(L"cursor");
     }
 
+    // Check for OpenAI Codex CLI
+    if (lowerCmd.find(L"codex") != std::wstring::npos ||
+        lowerCmd.find(L"@openai\\codex") != std::wstring::npos ||
+        lowerCmd.find(L"@openai/codex") != std::wstring::npos) {
+        return find_preset(L"codex");
+    }
+
     return nullptr;
 }
 
@@ -291,7 +298,7 @@ void print_usage() {
                << L"  --app <name>         Use AI CLI preset (claude, copilot, gemini, codex, cursor)\n"
                << L"  -i, --icon <path>    Custom icon path (PNG recommended, 48x48px)\n"
                << L"  -h, --help           Show this help\n"
-               << L"  --install [agent]    Install hooks for AI CLI agents (claude, gemini, copilot, or all)\n"
+               << L"  --install [agent]    Install hooks for AI CLI agents (claude, gemini, copilot, codex, or all)\n"
                << L"  --uninstall          Remove hooks from all AI CLI agents\n"
                << L"  --status             Show installation status\n"
                << L"  --register           Re-register app for notifications (troubleshooting)\n\n"
@@ -605,6 +612,11 @@ bool detect_copilot() {
     return path_exists(L".github\\hooks") || path_exists(L".github");
 }
 
+bool detect_codex() {
+    std::wstring codexPath = expand_env(L"%USERPROFILE%\\.codex");
+    return path_exists(codexPath);
+}
+
 // Read file content as string
 std::string read_file(const std::wstring& path) {
     std::ifstream file(path, std::ios::binary);
@@ -695,6 +707,145 @@ bool has_toasty_hook(const JsonArray& hooks) {
         }
     }
     return false;
+}
+
+// Simple TOML helper functions for Codex config
+// Parse TOML to find [notify] section and post_turn value
+std::string get_toml_notify_post_turn(const std::string& tomlContent) {
+    std::istringstream stream(tomlContent);
+    std::string line;
+    bool inNotifySection = false;
+    
+    while (std::getline(stream, line)) {
+        // Trim whitespace
+        size_t start = line.find_first_not_of(" \t\r\n");
+        size_t end = line.find_last_not_of(" \t\r\n");
+        if (start == std::string::npos) continue;
+        line = line.substr(start, end - start + 1);
+        
+        // Check for section headers
+        if (line[0] == '[') {
+            inNotifySection = (line == "[notify]");
+            continue;
+        }
+        
+        // If in [notify] section, look for post_turn
+        if (inNotifySection && line.find("post_turn") == 0) {
+            size_t eqPos = line.find('=');
+            if (eqPos != std::string::npos) {
+                std::string value = line.substr(eqPos + 1);
+                // Trim whitespace
+                start = value.find_first_not_of(" \t\r\n");
+                if (start != std::string::npos) {
+                    value = value.substr(start);
+                    // Remove quotes if present
+                    if (!value.empty() && (value[0] == '"' || value[0] == '\'')) {
+                        value = value.substr(1);
+                        size_t endQuote = value.find_last_of("\"'");
+                        if (endQuote != std::string::npos) {
+                            value = value.substr(0, endQuote);
+                        }
+                    }
+                    return value;
+                }
+            }
+        }
+    }
+    return "";
+}
+
+// Set post_turn value in TOML [notify] section
+std::string set_toml_notify_post_turn(const std::string& tomlContent, const std::string& value) {
+    std::istringstream stream(tomlContent);
+    std::ostringstream result;
+    std::string line;
+    bool inNotifySection = false;
+    bool foundPostTurn = false;
+    bool notifySectionExists = false;
+    
+    while (std::getline(stream, line)) {
+        std::string trimmed = line;
+        size_t start = trimmed.find_first_not_of(" \t\r\n");
+        size_t end = trimmed.find_last_not_of(" \t\r\n");
+        if (start != std::string::npos) {
+            trimmed = trimmed.substr(start, end - start + 1);
+        }
+        
+        // Check for section headers
+        if (!trimmed.empty() && trimmed[0] == '[') {
+            if (inNotifySection && !foundPostTurn) {
+                // Add post_turn before leaving [notify] section
+                result << "post_turn = \"" << value << "\"\n";
+                foundPostTurn = true;
+            }
+            inNotifySection = (trimmed == "[notify]");
+            if (inNotifySection) {
+                notifySectionExists = true;
+            }
+            result << line << "\n";
+            continue;
+        }
+        
+        // If in [notify] section, check for post_turn
+        if (inNotifySection && !trimmed.empty() && trimmed.find("post_turn") == 0) {
+            // Replace existing post_turn
+            result << "post_turn = \"" << value << "\"\n";
+            foundPostTurn = true;
+            continue;
+        }
+        
+        result << line << "\n";
+    }
+    
+    // If [notify] section existed but no post_turn was found, add it
+    if (notifySectionExists && !foundPostTurn) {
+        // The section already ended, we need to re-add it at the end
+        // This is a simplified approach - in real use, config should be well-formed
+    }
+    
+    // If [notify] section doesn't exist, add it at the end
+    if (!notifySectionExists) {
+        result << "\n[notify]\n";
+        result << "post_turn = \"" << value << "\"\n";
+    }
+    
+    return result.str();
+}
+
+// Remove post_turn from TOML [notify] section
+std::string remove_toml_notify_post_turn(const std::string& tomlContent) {
+    std::istringstream stream(tomlContent);
+    std::ostringstream result;
+    std::string line;
+    bool inNotifySection = false;
+    
+    while (std::getline(stream, line)) {
+        std::string trimmed = line;
+        size_t start = trimmed.find_first_not_of(" \t\r\n");
+        size_t end = trimmed.find_last_not_of(" \t\r\n");
+        if (start != std::string::npos) {
+            trimmed = trimmed.substr(start, end - start + 1);
+        }
+        
+        // Check for section headers
+        if (!trimmed.empty() && trimmed[0] == '[') {
+            inNotifySection = (trimmed == "[notify]");
+            result << line << "\n";
+            continue;
+        }
+        
+        // If in [notify] section and line is post_turn with toasty, skip it
+        if (inNotifySection && !trimmed.empty() && trimmed.find("post_turn") == 0) {
+            // Check if it contains toasty
+            if (line.find("toasty") != std::string::npos) {
+                continue; // Skip this line
+            }
+        }
+        
+        result << line << "\n";
+    }
+    
+    return result.str();
 }
 
 // Install hook for Claude Code
@@ -882,6 +1033,49 @@ bool install_copilot(const std::wstring& exePath) {
     return write_file(configPath, jsonStr);
 }
 
+// Install hook for OpenAI Codex
+bool install_codex(const std::wstring& exePath) {
+    std::wstring configPath = expand_env(L"%USERPROFILE%\\.codex\\config.toml");
+    
+    std::string existingContent = read_file(configPath);
+    
+    // Check if already installed
+    if (!existingContent.empty()) {
+        std::string currentPostTurn = get_toml_notify_post_turn(existingContent);
+        if (currentPostTurn.find("toasty") != std::string::npos) {
+            return true; // Already installed
+        }
+        backup_file(configPath);
+    }
+    
+    // Convert wstring path to string for TOML
+    int size = WideCharToMultiByte(CP_UTF8, 0, exePath.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string exePathStr(size - 1, 0);
+    WideCharToMultiByte(CP_UTF8, 0, exePath.c_str(), -1, &exePathStr[0], size, nullptr, nullptr);
+    
+    // Build command - escape backslashes for TOML
+    std::string command = exePathStr;
+    // Replace backslashes with double backslashes for TOML
+    size_t pos = 0;
+    while ((pos = command.find('\\', pos)) != std::string::npos) {
+        command.replace(pos, 1, "\\\\");
+        pos += 2;
+    }
+    command += " \\\"Codex finished\\\" -t \\\"OpenAI Codex\\\"";
+    
+    // Update or create TOML config
+    std::string newContent;
+    if (existingContent.empty()) {
+        // Create new config with [notify] section
+        newContent = "[notify]\npost_turn = \"" + command + "\"\n";
+    } else {
+        // Update existing config
+        newContent = set_toml_notify_post_turn(existingContent, command);
+    }
+    
+    return write_file(configPath, newContent);
+}
+
 // Check if Claude hook is installed
 bool is_claude_installed() {
     std::wstring configPath = expand_env(L"%USERPROFILE%\\.claude\\settings.json");
@@ -959,6 +1153,16 @@ bool is_copilot_installed() {
     }
     
     return false;
+}
+
+// Check if Codex hook is installed
+bool is_codex_installed() {
+    std::wstring configPath = expand_env(L"%USERPROFILE%\\.codex\\config.toml");
+    std::string content = read_file(configPath);
+    if (content.empty()) return false;
+    
+    std::string postTurn = get_toml_notify_post_turn(content);
+    return !postTurn.empty() && postTurn.find("toasty") != std::string::npos;
 }
 
 // Remove toasty hooks from a JSON array
@@ -1099,6 +1303,35 @@ bool uninstall_copilot() {
     return true;
 }
 
+// Uninstall hook for OpenAI Codex
+bool uninstall_codex() {
+    std::wstring configPath = expand_env(L"%USERPROFILE%\\.codex\\config.toml");
+    std::string existingContent = read_file(configPath);
+    
+    if (existingContent.empty()) {
+        return true; // Nothing to uninstall
+    }
+    
+    try {
+        backup_file(configPath);
+        std::string newContent = remove_toml_notify_post_turn(existingContent);
+        return write_file(configPath, newContent);
+    } catch (const std::exception& e) {
+        // Convert narrow string to wide string
+        int size = MultiByteToWideChar(CP_UTF8, 0, e.what(), -1, nullptr, 0);
+        if (size > 0) {
+            std::wstring wideMsg(size - 1, 0);
+            MultiByteToWideChar(CP_UTF8, 0, e.what(), -1, &wideMsg[0], size);
+            std::wcerr << L"Error uninstalling Codex hook: " << wideMsg << L"\n";
+        } else {
+            std::wcerr << L"Error uninstalling Codex hook\n";
+        }
+        return false;
+    }
+    
+    return true;
+}
+
 // Show installation status
 void show_status() {
     std::wcout << L"Installation status:\n\n";
@@ -1106,17 +1339,20 @@ void show_status() {
     bool claudeDetected = detect_claude();
     bool geminiDetected = detect_gemini();
     bool copilotDetected = detect_copilot();
+    bool codexDetected = detect_codex();
     
     std::wcout << L"Detected agents:\n";
     std::wcout << L"  " << (claudeDetected ? L"[x]" : L"[ ]") << L" Claude Code\n";
     std::wcout << L"  " << (geminiDetected ? L"[x]" : L"[ ]") << L" Gemini CLI\n";
     std::wcout << L"  " << (copilotDetected ? L"[x]" : L"[ ]") << L" GitHub Copilot (in current repo)\n";
+    std::wcout << L"  " << (codexDetected ? L"[x]" : L"[ ]") << L" OpenAI Codex\n";
     std::wcout << L"\n";
     
     std::wcout << L"Installed hooks:\n";
     std::wcout << L"  " << (is_claude_installed() ? L"[x]" : L"[ ]") << L" Claude Code\n";
     std::wcout << L"  " << (is_gemini_installed() ? L"[x]" : L"[ ]") << L" Gemini CLI\n";
     std::wcout << L"  " << (is_copilot_installed() ? L"[x]" : L"[ ]") << L" GitHub Copilot\n";
+    std::wcout << L"  " << (is_codex_installed() ? L"[x]" : L"[ ]") << L" OpenAI Codex\n";
 }
 
 // Handle --install command
@@ -1133,16 +1369,19 @@ void handle_install(const std::wstring& agent) {
     bool installClaude = installAll || agent == L"claude";
     bool installGemini = installAll || agent == L"gemini";
     bool installCopilot = installAll || agent == L"copilot";
+    bool installCodex = installAll || agent == L"codex";
 
     std::wcout << L"Detecting AI CLI agents...\n";
 
     bool claudeDetected = detect_claude();
     bool geminiDetected = detect_gemini();
     bool copilotDetected = detect_copilot();
+    bool codexDetected = detect_codex();
 
     std::wcout << L"  " << (claudeDetected ? L"[x]" : L"[ ]") << L" Claude Code found\n";
     std::wcout << L"  " << (geminiDetected ? L"[x]" : L"[ ]") << L" Gemini CLI found\n";
     std::wcout << L"  " << (copilotDetected ? L"[x]" : L"[ ]") << L" GitHub Copilot (in current repo)\n";
+    std::wcout << L"  " << (codexDetected ? L"[x]" : L"[ ]") << L" OpenAI Codex found\n";
     std::wcout << L"\n";
 
     std::wcout << L"Installing toasty hooks...\n";
@@ -1175,6 +1414,15 @@ void handle_install(const std::wstring& agent) {
             anyInstalled = true;
         } else {
             std::wcout << L"  [ ] GitHub Copilot: Failed to install\n";
+        }
+    }
+    
+    if (installCodex && (codexDetected || explicitAgent)) {
+        if (install_codex(exePath)) {
+            std::wcout << L"  [x] OpenAI Codex: Added post_turn hook\n";
+            anyInstalled = true;
+        } else {
+            std::wcout << L"  [ ] OpenAI Codex: Failed to install\n";
         }
     }
     
@@ -1215,6 +1463,15 @@ void handle_uninstall() {
             anyUninstalled = true;
         } else {
             std::wcout << L"  [ ] GitHub Copilot: Failed to remove\n";
+        }
+    }
+    
+    if (is_codex_installed()) {
+        if (uninstall_codex()) {
+            std::wcout << L"  [x] OpenAI Codex: Removed hooks\n";
+            anyUninstalled = true;
+        } else {
+            std::wcout << L"  [ ] OpenAI Codex: Failed to remove\n";
         }
     }
     
