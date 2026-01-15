@@ -710,6 +710,37 @@ bool has_toasty_hook(const JsonArray& hooks) {
 }
 
 // Simple TOML helper functions for Codex config
+// Escape string for use in TOML quoted string
+std::string escape_toml_string(const std::string& str) {
+    std::string result;
+    result.reserve(str.size());
+    for (char c : str) {
+        switch (c) {
+            case '\\': result += "\\\\"; break;
+            case '"':  result += "\\\""; break;
+            case '\n': result += "\\n"; break;
+            case '\r': result += "\\r"; break;
+            case '\t': result += "\\t"; break;
+            default:   result += c; break;
+        }
+    }
+    return result;
+}
+
+// Helper to check if a trimmed line contains exactly the "post_turn" key
+bool is_post_turn_key(const std::string& line) {
+    size_t eqPos = line.find('=');
+    if (eqPos == std::string::npos) return false;
+    
+    std::string key = line.substr(0, eqPos);
+    size_t start = key.find_first_not_of(" \t\r\n");
+    size_t end = key.find_last_not_of(" \t\r\n");
+    if (start == std::string::npos) return false;
+    
+    key = key.substr(start, end - start + 1);
+    return key == "post_turn";
+}
+
 // Parse TOML to find [notify] section and post_turn value
 std::string get_toml_notify_post_turn(const std::string& tomlContent) {
     std::istringstream stream(tomlContent);
@@ -730,34 +761,25 @@ std::string get_toml_notify_post_turn(const std::string& tomlContent) {
         }
         
         // If in [notify] section, look for post_turn
-        if (inNotifySection && line.find("post_turn") == 0) {
+        if (inNotifySection && is_post_turn_key(line)) {
             size_t eqPos = line.find('=');
-            if (eqPos != std::string::npos) {
-                // Verify it's actually "post_turn" followed by whitespace or '='
-                std::string beforeEq = line.substr(0, eqPos);
-                size_t start = beforeEq.find_first_not_of(" \t\r\n");
-                size_t end = beforeEq.find_last_not_of(" \t\r\n");
-                if (start != std::string::npos) {
-                    beforeEq = beforeEq.substr(start, end - start + 1);
-                    if (beforeEq != "post_turn") continue; // Not exact match
-                }
-                
-                std::string value = line.substr(eqPos + 1);
-                // Trim whitespace
-                start = value.find_first_not_of(" \t\r\n");
-                if (start != std::string::npos) {
-                    value = value.substr(start);
-                    // Remove quotes if present - match opening and closing quote type
-                    if (!value.empty() && (value[0] == '"' || value[0] == '\'')) {
-                        char quoteChar = value[0];
-                        value = value.substr(1);
-                        size_t endQuote = value.find_last_of(quoteChar);
-                        if (endQuote != std::string::npos) {
-                            value = value.substr(0, endQuote);
-                        }
+            std::string value = line.substr(eqPos + 1);
+            
+            // Trim whitespace
+            start = value.find_first_not_of(" \t\r\n");
+            if (start != std::string::npos) {
+                value = value.substr(start);
+                // Remove quotes if present - find matching closing quote
+                if (!value.empty() && (value[0] == '"' || value[0] == '\'')) {
+                    char quoteChar = value[0];
+                    value = value.substr(1);
+                    // Find the closing quote by searching for the same quote character
+                    size_t endQuote = value.find(quoteChar);
+                    if (endQuote != std::string::npos) {
+                        value = value.substr(0, endQuote);
                     }
-                    return value;
                 }
+                return value;
             }
         }
     }
@@ -797,25 +819,11 @@ std::string set_toml_notify_post_turn(const std::string& tomlContent, const std:
         }
         
         // If in [notify] section, check for post_turn
-        if (inNotifySection && !trimmed.empty() && trimmed.find("post_turn") == 0) {
-            // Verify it's actually "post_turn" followed by whitespace or '='
-            size_t eqPos = trimmed.find('=');
-            if (eqPos != std::string::npos) {
-                std::string beforeEq = trimmed.substr(0, eqPos);
-                size_t start = beforeEq.find_first_not_of(" \t\r\n");
-                size_t end = beforeEq.find_last_not_of(" \t\r\n");
-                if (start != std::string::npos) {
-                    beforeEq = beforeEq.substr(start, end - start + 1);
-                    if (beforeEq != "post_turn") {
-                        result << line << "\n";
-                        continue; // Not exact match, keep the line
-                    }
-                }
-                // Replace existing post_turn
-                result << "post_turn = \"" << value << "\"\n";
-                foundPostTurn = true;
-                continue;
-            }
+        if (inNotifySection && !trimmed.empty() && is_post_turn_key(trimmed)) {
+            // Replace existing post_turn
+            result << "post_turn = \"" << value << "\"\n";
+            foundPostTurn = true;
+            continue;
         }
         
         result << line << "\n";
@@ -858,24 +866,10 @@ std::string remove_toml_notify_post_turn(const std::string& tomlContent) {
         }
         
         // If in [notify] section and line is post_turn with toasty, skip it
-        if (inNotifySection && !trimmed.empty() && trimmed.find("post_turn") == 0) {
-            // Verify it's actually "post_turn" followed by whitespace or '='
-            size_t eqPos = trimmed.find('=');
-            if (eqPos != std::string::npos) {
-                std::string beforeEq = trimmed.substr(0, eqPos);
-                size_t start = beforeEq.find_first_not_of(" \t\r\n");
-                size_t end = beforeEq.find_last_not_of(" \t\r\n");
-                if (start != std::string::npos) {
-                    beforeEq = beforeEq.substr(start, end - start + 1);
-                    if (beforeEq != "post_turn") {
-                        result << line << "\n";
-                        continue; // Not exact match, keep the line
-                    }
-                }
-                // Check if it contains toasty
-                if (line.find("toasty") != std::string::npos) {
-                    continue; // Skip this line
-                }
+        if (inNotifySection && !trimmed.empty() && is_post_turn_key(trimmed)) {
+            // Check if it contains toasty
+            if (line.find("toasty") != std::string::npos) {
+                continue; // Skip this line
             }
         }
         
@@ -1090,15 +1084,8 @@ bool install_codex(const std::wstring& exePath) {
     std::string exePathStr(size - 1, 0);
     WideCharToMultiByte(CP_UTF8, 0, exePath.c_str(), -1, &exePathStr[0], size, nullptr, nullptr);
     
-    // Build command - escape backslashes and quotes for TOML string
-    std::string command = exePathStr;
-    // Replace backslashes with double backslashes for TOML
-    size_t pos = 0;
-    while ((pos = command.find('\\', pos)) != std::string::npos) {
-        command.replace(pos, 1, "\\\\");
-        pos += 2;
-    }
-    command += " \\\"Codex finished\\\" -t \\\"OpenAI Codex\\\"";
+    // Build command with proper TOML escaping
+    std::string command = escape_toml_string(exePathStr) + " \"Codex finished\" -t \"OpenAI Codex\"";
     
     // Update or create TOML config
     std::string newContent;
