@@ -713,7 +713,7 @@ bool has_toasty_hook(const JsonArray& hooks) {
 // Escape string for use in TOML quoted string
 std::string escape_toml_string(const std::string& str) {
     std::string result;
-    result.reserve(str.size());
+    result.reserve(str.size() * 2);  // Reserve extra space for escaping
     for (char c : str) {
         switch (c) {
             case '\\': result += "\\\\"; break;
@@ -1084,8 +1084,9 @@ bool install_codex(const std::wstring& exePath) {
     std::string exePathStr(size - 1, 0);
     WideCharToMultiByte(CP_UTF8, 0, exePath.c_str(), -1, &exePathStr[0], size, nullptr, nullptr);
     
-    // Build command with proper TOML escaping
-    std::string command = escape_toml_string(exePathStr) + " \"Codex finished\" -t \"OpenAI Codex\"";
+    // Build complete command string and escape it for TOML
+    std::string rawCommand = exePathStr + " \"Codex finished\" -t \"OpenAI Codex\"";
+    std::string command = escape_toml_string(rawCommand);
     
     // Update or create TOML config
     std::string newContent;
