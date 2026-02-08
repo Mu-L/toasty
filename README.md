@@ -39,9 +39,8 @@ Options:
 | GitHub Copilot | ✅ | ✅ | ✅ | `sessionEnd` | `.github/hooks/toasty.json` |
 | Gemini CLI | ✅ | ✅ | ✅ | `AfterAgent` | `~/.gemini/settings.json` |
 | OpenAI Codex | ✅ | ✅ | ✅ | `notify` | `~/.codex/config.toml` |
-| OpenCode | ⬜ | ✅ | ✅ | JS plugin | `~/.config/opencode/plugins/` |
 
-- **Icon**: Built-in icon for toast notifications (⬜ = uses default Toasty icon)
+- **Icon**: Built-in icon for toast notifications
 - **Auto-Detect**: Toasty recognizes the agent's process and applies the preset automatically
 - **`--install`**: `toasty --install` can automatically configure the agent's hook
 
